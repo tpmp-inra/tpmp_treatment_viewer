@@ -2,11 +2,14 @@ library(shiny)
 library(ggplot2)
 library(ggExtra)
 library(ggcorrplot)
-library(dplyr)
+library(tidyverse)
 library(gridExtra)
 library(reshape2)
 library(data.table)
 library(RColorBrewer)
+library(shinyWidgets)
+
+source("./shiny_common.R")
 
 ui <- pageWithSidebar(
   
@@ -20,12 +23,13 @@ ui <- pageWithSidebar(
                        ".csv")),
     fluidRow(
       column(6,
-             uiOutput("treatment_selector"),
+             uiOutput("cbTreatmentSelection"),
              uiOutput("genotype_selector"),
              uiOutput("treatment_value_selector"),
              uiOutput("xAxisCombo"),
              uiOutput("yAxisCombo"),
-             uiOutput("smoothingModel")),
+             uiOutput("smoothingModel"),
+             uiOutput("cbNormalizationMethod")),
       column(6,
              uiOutput("cbPaletteSelector"),
              uiOutput("chkSplitScatter"),
@@ -33,10 +37,12 @@ ui <- pageWithSidebar(
              uiOutput("dotSize"),
              uiOutput("chkDrawGenotype"),
              uiOutput("chkShowCorrelationMatrix"),
-             uiOutput("correlationHelpText"))),
+             uiOutput("cbCorrelationMatrix"))),
     uiOutput("timeSliceSelector"),
     uiOutput("chkUseTimePointSelector"),
-    uiOutput("timePointSelector")
+    uiOutput("timePointSelector"),
+    
+    tags$head(tags$style("#scatter_plot{height:80vh !important;}"))
   ),
   
   mainPanel(
@@ -56,12 +62,7 @@ server <- function(input, output, session) {
   
   #This function is repsonsible for loading in the selected file
   filedata <- reactive({
-    infile <- input$datafile
-    if (is.null(infile)) {
-      # User has not uploaded a file yet
-      return(NULL)
-    }
-    read.csv(infile$datapath)
+    load_experience_csv(input)
   })
   
   #This previews the CSV data file
@@ -69,20 +70,15 @@ server <- function(input, output, session) {
     filedata()
   })
   
-  output$treatment_selector <- renderUI({
+  output$cbTreatmentSelection <- renderUI({
     # Exit if not ready
     df <-filedata()
     if (is.null(df)) return(NULL)
+    
     # Exit if not for current display mode
     if ("genotype" %in% colnames(df) & "treatment_value" %in% colnames(df)) return(NULL)
     
-    distinct_df = distinct(df,treatment)
-    distinct_vector = distinct_df$treatment
-    cb_options = as.list(levels(distinct_vector))
-    checkboxGroupInput(inputId =  "treatment_selector",
-                       label = "Display treatments:",
-                       choices = cb_options,
-                       selected = cb_options)
+    fill_treatment_selection(df)
   })
   
   output$genotype_selector <- renderUI({
@@ -152,15 +148,7 @@ server <- function(input, output, session) {
     df <-filedata()
     if (is.null(df)) return(NULL)
     
-    stringDf <- df[sapply(df,is.factor)]
-    stringDf <- stringDf[, !(colnames(stringDf) %in% c("date_time"))]
-    dsnames <- names(stringDf)
-    # cb_options <- list()
-    # cb_options[ dsnames] <- dsnames
-    selectInput("chkSplitScatter", 
-                "Separate graphs using:", 
-                choices = c("None", as.list(dsnames)), 
-                selected = "treament")
+    build_string_selectImput(df, "chkSplitScatter",  "Separate graphs using:", "treament")
   })
   
   output$chkShowCorrelationMatrix <- renderUI({
@@ -169,10 +157,28 @@ server <- function(input, output, session) {
     checkboxInput("chkShowCorrelationMatrix", "Show correlation matrix", FALSE)
   })
   
-  output$correlationHelpText <- renderText({
+  output$cbCorrelationMatrix <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
-    "Correlation matrix will ignore all other options except treatments displayed"
+    new_df <- df[sapply(df,is.numeric)]
+    dsnames <- names(new_df)
+    cb_options <- list()
+    cb_options[ dsnames] <- dsnames
+    
+    pickerInput(
+      inputId = "cbCorrelationMatrix", 
+      label = "Select correlation matrix attributes", 
+      choices = cb_options,
+      options = list(
+        `selected-text-format` = "count > 5",
+        `count-selected-text` = "{0} attributes selelcted",
+        `actions-box` = TRUE,
+        `deselect-all-text` = "Select none",
+        `select-all-text` = "Select all"
+      ), 
+      selected = cb_options,
+      multiple = TRUE
+    )
   })
   
   #The following set of functions populate the x axis selectors
@@ -234,6 +240,12 @@ server <- function(input, output, session) {
     
   })
   
+  output$cbNormalizationMethod <- renderUI({
+    df <-filedata()
+    if (is.null(df)) return(NULL)
+    fill_normalization_cb()
+  })
+  
   output$timeSliceSelector <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
@@ -290,9 +302,20 @@ server <- function(input, output, session) {
         treatments_to_plot <- filter(df, genotype %in% input$genotype_selector)
         treatments_to_plot <- filter(treatments_to_plot, treatment_value %in% input$treatment_value_selector)
       } else {
-        treatments_to_plot <- filter(df, treatment %in% input$treatment_selector)
+        treatments_to_plot <- filter(df, treatment %in% input$cbTreatmentSelection)
       }
       
+      # Normalize
+      if (input$cbNormalizationMethod == "normalization") {
+        normalize <- function(x) {
+          return((x-min(x)) / (max(x)-min(x)))
+        }
+        treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(normalize(.) %>% as.vector))
+      } else {
+        if (input$cbNormalizationMethod == "scale") {
+          treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(scale(.) %>% as.vector))
+        }
+      }
       
       if (input$chkUseTimePointSelector) {
         timesVector <- as.vector(treatments_to_plot["day_after_start"])
@@ -306,10 +329,10 @@ server <- function(input, output, session) {
         }
       }
       
-      numericDf <- treatments_to_plot[sapply(treatments_to_plot,is.numeric)]
       if (input$chkShowCorrelationMatrix) {
         
-        corr <- round(cor(numericDf), 1)
+        corrDf <- treatments_to_plot[, input$cbCorrelationMatrix]
+        corr <- round(cor(corrDf), 1)
         
         # Plot
         ggcorrplot(corr, 
@@ -329,11 +352,12 @@ server <- function(input, output, session) {
         }
         
         # Set palette
+        numericDf <- treatments_to_plot[sapply(treatments_to_plot,is.numeric)]
         if (colorBy %in% colnames(numericDf)) {
           gg <- gg + scale_fill_gradient(low = brewer.pal(8, input$cbPaletteSelector)[1],
                                          high = brewer.pal(8, input$cbPaletteSelector)[length(brewer.pal(8, input$cbPaletteSelector))],
                                          space = "Lab",
-                                         na.value = "grey50", 
+                                         na.value = "grey50",
                                          guide = "colourbar")
         } else {
           treatmentsVector <- as.vector(treatments_to_plot[colorBy])
@@ -352,7 +376,15 @@ server <- function(input, output, session) {
         if (!input$chkUseTimePointSelector & (input$smoothingModel != "none")) {
           gg <- gg + geom_smooth(method = input$smoothingModel)
         }
-
+        
+        # gg <- gg + theme(legend.position = c(0.8, 0.25),
+        #                  # legend.box.background = element_rect(),
+        #                  legend.title = element_text(size=30, face = "bold"),
+        #                  legend.text=element_text(size=30),
+        #                  axis.text=element_text(size=20),
+        #                  axis.title=element_text(size=24,face="bold"),
+        #                  title = element_text(size=36))
+        
         gg
       }
     }  

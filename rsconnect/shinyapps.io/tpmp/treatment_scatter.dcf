@@ -1,10 +1,12 @@
 name: treatment_scatter
-title:
+title: treatment_scatter
 username:
 account: tpmp
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 350486
-bundleId: 1402793
+bundleId: 1465965
 url: https://tpmp.shinyapps.io/treatment_scatter/
-when: 1527778725.45691
+when: 1530791360.58023
+asMultiple: FALSE
+asStatic: FALSE
