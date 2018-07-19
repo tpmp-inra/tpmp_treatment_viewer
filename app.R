@@ -8,6 +8,7 @@ library(reshape2)
 library(data.table)
 library(RColorBrewer)
 library(shinyWidgets)
+library(ggrepel)
 
 source("./shiny_common.R")
 
@@ -24,12 +25,11 @@ ui <- pageWithSidebar(
     fluidRow(
       column(6,
              uiOutput("cbTreatmentSelection"),
-             uiOutput("genotype_selector"),
-             uiOutput("treatment_value_selector"),
              uiOutput("xAxisCombo"),
              uiOutput("yAxisCombo"),
              uiOutput("smoothingModel"),
-             uiOutput("cbNormalizationMethod")),
+             uiOutput("cbNormalizationMethod"),
+             uiOutput("cbShowLabels")),
       column(6,
              uiOutput("cbPaletteSelector"),
              uiOutput("chkSplitScatter"),
@@ -70,44 +70,15 @@ server <- function(input, output, session) {
     filedata()
   })
   
+  # Populate treatment selector
   output$cbTreatmentSelection <- renderUI({
-    # Exit if not ready
     df <-filedata()
     if (is.null(df)) return(NULL)
     
-    # Exit if not for current display mode
-    if ("genotype" %in% colnames(df) & "treatment_value" %in% colnames(df)) return(NULL)
-    
-    fill_treatment_selection(df)
-  })
-  
-  output$genotype_selector <- renderUI({
-    # Exit if not ready
-    df <-filedata()
-    if (is.null(df)) return(NULL)
-    # Exit if not for current display mode
-    if (!("genotype" %in% colnames(df)) | !("treatment_value" %in% colnames(df))) return(NULL)
-    
-    
-    cb_options = as.list(levels(distinct(df,genotype)$genotype))
-    checkboxGroupInput(inputId =  "genotype_selector",
-                       label = "Genotypes:",
-                       choices = cb_options,
-                       selected = cb_options)
-  })
-  
-  output$treatment_value_selector <- renderUI({
-    # Exit if not ready
-    df <-filedata()
-    if (is.null(df)) return(NULL)
-    # Exit if not for current display mode
-    if (!("genotype" %in% colnames(df)) | !("treatment_value" %in% colnames(df))) return(NULL)
-    
-    cb_options = as.list(distinct(df,treatment_value)$treatment_value)
-    checkboxGroupInput(inputId =  "treatment_value_selector",
-                       label = "Treatments values:",
-                       choices = cb_options,
-                       selected = cb_options)
+    fill_treatment_selection(df,
+                             "cbTreatmentSelection",
+                             "Select treatments to be displayed",
+                             "count > 3")
   })
   
   output$cbPaletteSelector <- renderUI({
@@ -246,6 +217,15 @@ server <- function(input, output, session) {
     fill_normalization_cb()
   })
   
+  output$cbShowLabels <- renderUI({
+    df <-filedata()
+    if (is.null(df)) return(NULL)
+    build_string_selectImput(df, 
+                             "cbShowLabels",  
+                             "Show plant name (if all dots are displayed graph will become cluttered:", 
+                             "none")
+  })
+  
   output$timeSliceSelector <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
@@ -298,12 +278,7 @@ server <- function(input, output, session) {
     
     if (sum(xv %in% names(df))>0){ # supress error when changing files
       
-      if ("genotype" %in% colnames(df) & "treatment_value" %in% colnames(df)) {
-        treatments_to_plot <- filter(df, genotype %in% input$genotype_selector)
-        treatments_to_plot <- filter(treatments_to_plot, treatment_value %in% input$treatment_value_selector)
-      } else {
-        treatments_to_plot <- filter(df, treatment %in% input$cbTreatmentSelection)
-      }
+      treatments_to_plot <- filter(df, treatment %in% input$cbTreatmentSelection)
       
       # Normalize
       if (input$cbNormalizationMethod == "normalization") {
@@ -367,6 +342,10 @@ server <- function(input, output, session) {
         # Select display mode
         gg <- gg + geom_point(alpha = 0.7)
         
+        if (input$cbShowLabels != "None") {
+          gg <- gg + geom_text_repel(aes_string(color = colorBy, label = input$cbShowLabels), vjust = -1)
+        }
+        
         # Scatter the scatter
         if (input$chkSplitScatter != "None"){
           gg <- gg +  facet_wrap(input$chkSplitScatter)
@@ -376,14 +355,6 @@ server <- function(input, output, session) {
         if (!input$chkUseTimePointSelector & (input$smoothingModel != "none")) {
           gg <- gg + geom_smooth(method = input$smoothingModel)
         }
-        
-        # gg <- gg + theme(legend.position = c(0.8, 0.25),
-        #                  # legend.box.background = element_rect(),
-        #                  legend.title = element_text(size=30, face = "bold"),
-        #                  legend.text=element_text(size=30),
-        #                  axis.text=element_text(size=20),
-        #                  axis.title=element_text(size=24,face="bold"),
-        #                  title = element_text(size=36))
         
         gg
       }
