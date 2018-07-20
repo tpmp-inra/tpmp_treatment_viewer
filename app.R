@@ -1,3 +1,19 @@
+list.of.packages <- c("shiny", 
+                      "ggplot2", 
+                      "ggExtra",
+                      "ggcorrplot",
+                      "tidyverse",
+                      "gridExtra",
+                      "reshape2",
+                      "data.table",
+                      "RColorBrewer",
+                      "shinyWidgets",
+                      "ggrepel")
+
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+
 library(shiny)
 library(ggplot2)
 library(ggExtra)
@@ -32,7 +48,7 @@ ui <- pageWithSidebar(
              uiOutput("cbShowLabels")),
       column(6,
              uiOutput("cbPaletteSelector"),
-             uiOutput("chkSplitScatter"),
+             uiOutput("cbSplitScatter"),
              uiOutput("colorBy"),
              uiOutput("dotSize"),
              uiOutput("chkDrawGenotype"),
@@ -84,21 +100,7 @@ server <- function(input, output, session) {
   output$cbPaletteSelector <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
-    selectInput("cbPaletteSelector",
-                "Color Palette:",
-                c("Accent" = "Accent",
-                  "Spectral" = "Spectral",
-                  "RdYlGn" = "RdYlGn",
-                  "RdYlBu" = "RdYlBu",
-                  "Set1" = "Set1",
-                  "Set2" = "Set2",
-                  "Set3" = "Set3",
-                  "Pastel1" = "Pastel1",
-                  "Pastel2" = "Pastel2",
-                  "Paired" = "Paired",
-                  "Dark2" = "Dark2",
-                  "Blues" = "Blues"
-                ))
+    fill_palette_selector("cbPaletteSelector")
   })
   
   output$chkDrawGenotype <- renderUI({
@@ -115,11 +117,11 @@ server <- function(input, output, session) {
     }
   })
   
-  output$chkSplitScatter <- renderUI({
+  output$cbSplitScatter <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
     
-    build_string_selectImput(df, "chkSplitScatter",  "Separate graphs using:", "treament")
+    build_string_selectImput(df, "cbSplitScatter",  "Separate graphs using:", "treament")
   })
   
   output$chkShowCorrelationMatrix <- renderUI({
@@ -347,8 +349,8 @@ server <- function(input, output, session) {
         }
         
         # Scatter the scatter
-        if (input$chkSplitScatter != "None"){
-          gg <- gg +  facet_wrap(input$chkSplitScatter)
+        if (input$cbSplitScatter != "None"){
+          gg <- gg +  facet_wrap(input$cbSplitScatter)
         }
 
         # Smoothy
