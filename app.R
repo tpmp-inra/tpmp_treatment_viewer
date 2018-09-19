@@ -41,6 +41,7 @@ ui <- pageWithSidebar(
     fluidRow(
       column(6,
              uiOutput("cbTreatmentSelection"),
+             uiOutput("cbPlantSelection"),
              uiOutput("xAxisCombo"),
              uiOutput("yAxisCombo"),
              uiOutput("smoothingModel"),
@@ -66,7 +67,9 @@ ui <- pageWithSidebar(
       tabPanel("Scatter", 
                plotOutput(outputId = "scatter_plot", 
                           inline = FALSE, 
-                          height = "800")),
+                          height = "800",
+                          hover = "plot_hover"),
+               tableOutput("observationInfo")),
       tabPanel("CSV File", tableOutput("filetable"))
     )
   )
@@ -79,6 +82,69 @@ server <- function(input, output, session) {
   #This function is repsonsible for loading in the selected file
   filedata <- reactive({
     load_experience_csv(input)
+  })
+  
+  filteredData <- reactive({
+    req(input$xAxisCombo, input$yAxisCombo, input$dotSize)
+    
+    df <-filedata()
+    if (is.null(df)) return(NULL)
+    
+    xv <- input$xAxisCombo
+    if (is.null(xv)) return(NULL)
+    yv <- input$yAxisCombo
+    if (is.null(yv)) return(NULL)
+    dotSize <- input$dotSize
+    if (is.null(dotSize)) return(NULL)
+    colorBy <- input$colorBy
+    if (is.null(colorBy)) return(NULL)
+    selPlant <- input$cbPlantSelection
+    if (is.null(selPlant)) return(NULL)
+    
+    if (sum(xv %in% names(df))>0){ # supress error when changing files
+      
+      treatments_to_plot <- 
+        df %>%
+        filter(treatment %in% input$cbTreatmentSelection) %>%
+        filter(plant %in% selPlant)
+      
+      # Normalize
+      if (input$cbNormalizationMethod == "normalization") {
+        normalize <- function(x) {
+          return((x-min(x)) / (max(x)-min(x)))
+        }
+        treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(normalize(.) %>% as.vector))
+      } else {
+        if (input$cbNormalizationMethod == "scale") {
+          treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(scale(.) %>% as.vector))
+        }
+      }
+      
+      if (input$chkUseTimePointSelector) {
+        timesVector <- as.vector(treatments_to_plot["day_after_start"])
+        
+        min_dist <- min(abs(timesVector - input$timePointSelector))
+        treatments_to_plot <- filter(treatments_to_plot, trunc(day_after_start) == input$timePointSelector)
+      } else {
+        if (input$xAxisCombo == "day_after_start") {
+          treatments_to_plot <- filter(treatments_to_plot, 
+                                       day_after_start >= input$timeSliceSelector[1] & day_after_start <= input$timeSliceSelector[2])
+        }
+      }
+      return(list(df = treatments_to_plot,
+                  dotSize = dotSize,
+                  colorBy = colorBy, 
+                  xv = xv,
+                  yv = yv))
+    }
+  })
+  
+  # Print observation details
+  output$observationInfo <- renderTable({
+    df <-filteredData()
+    if (is.null(df)) return(NULL)
+    
+    nearPoints(df$df, input$plot_hover)
   })
   
   #This previews the CSV data file
@@ -95,6 +161,14 @@ server <- function(input, output, session) {
                              "cbTreatmentSelection",
                              "Select treatments to be displayed",
                              "count > 3")
+  })
+  
+  # Populate plants selector
+  output$cbPlantSelection <- renderUI({
+    df <-filedata()
+    if (is.null(df)) return(NULL)
+    
+    fill_plant_selection(df)
   })
   
   output$cbPaletteSelector <- renderUI({
@@ -264,103 +338,63 @@ server <- function(input, output, session) {
   
   # Here it renders
   output$scatter_plot = renderPlot({
-    req(input$xAxisCombo, input$yAxisCombo, input$dotSize)
+    dt <- filteredData()
+    if (is.null(dt)) return(NULL)
     
-    df <-filedata()
-    if (is.null(df)) return(NULL)
-    
-    xv <- input$xAxisCombo
-    if (is.null(xv)) return(NULL)
-    yv <- input$yAxisCombo
-    if (is.null(yv)) return(NULL)
-    dotSize <- input$dotSize
-    if (is.null(dotSize)) return(NULL)
-    colorBy <- input$colorBy
-    if (is.null(colorBy)) return(NULL)
-    
-    if (sum(xv %in% names(df))>0){ # supress error when changing files
+    if (input$chkShowCorrelationMatrix) {
       
-      treatments_to_plot <- filter(df, treatment %in% input$cbTreatmentSelection)
+      corrDf <- dt$df[, input$cbCorrelationMatrix]
+      corr <- round(cor(corrDf), 1)
       
-      # Normalize
-      if (input$cbNormalizationMethod == "normalization") {
-        normalize <- function(x) {
-          return((x-min(x)) / (max(x)-min(x)))
-        }
-        treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(normalize(.) %>% as.vector))
+      # Plot
+      ggcorrplot(corr, 
+                 type = "lower", 
+                 lab = TRUE, 
+                 lab_size = 3, 
+                 method="circle", 
+                 colors = c("tomato2", "white", "springgreen3"), 
+                 title="Correlogram of mtcars", 
+                 ggtheme=theme_bw)
+    } else {
+      # Plot the dots
+      if(input$chkDrawGenotype & "genotype" %in% colnames(dt$df)) {
+        gg <- ggplot(dt$df, aes_string(x = dt$xv , y = dt$yv, color = dt$colorBy, size = dt$dotSize, shape = "genotype"))
       } else {
-        if (input$cbNormalizationMethod == "scale") {
-          treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(scale(.) %>% as.vector))
-        }
+        gg <- ggplot(dt$df, aes_string(x = dt$xv , y = dt$yv, color = dt$colorBy, size = dt$dotSize))
       }
       
-      if (input$chkUseTimePointSelector) {
-        timesVector <- as.vector(treatments_to_plot["day_after_start"])
-        
-        min_dist <- min(abs(timesVector - input$timePointSelector))
-        treatments_to_plot <- filter(treatments_to_plot, trunc(day_after_start) == input$timePointSelector)
+      # Set palette
+      numericDf <- dt$df[sapply(dt$df,is.numeric)]
+      if (dt$colorBy %in% colnames(numericDf)) {
+        gg <- gg + scale_fill_gradient(low = brewer.pal(8, input$cbPaletteSelector)[1],
+                                       high = brewer.pal(8, input$cbPaletteSelector)[length(brewer.pal(8, input$cbPaletteSelector))],
+                                       space = "Lab",
+                                       na.value = "grey50",
+                                       guide = "colourbar")
       } else {
-        if (input$xAxisCombo == "day_after_start") {
-          treatments_to_plot <- filter(treatments_to_plot, 
-                                     day_after_start >= input$timeSliceSelector[1] & day_after_start <= input$timeSliceSelector[2])
-        }
+        treatmentsVector <- as.vector(dt$df[dt$colorBy])
+        gg <- gg + scale_colour_manual(values = colorRampPalette(brewer.pal(8, input$cbPaletteSelector))(n_distinct(treatmentsVector)))
       }
       
-      if (input$chkShowCorrelationMatrix) {
-        
-        corrDf <- treatments_to_plot[, input$cbCorrelationMatrix]
-        corr <- round(cor(corrDf), 1)
-        
-        # Plot
-        ggcorrplot(corr, 
-                   type = "lower", 
-                   lab = TRUE, 
-                   lab_size = 3, 
-                   method="circle", 
-                   colors = c("tomato2", "white", "springgreen3"), 
-                   title="Correlogram of mtcars", 
-                   ggtheme=theme_bw)
-      } else {
-        # Plot the dots
-        if(input$chkDrawGenotype & "genotype" %in% colnames(treatments_to_plot)) {
-          gg <- ggplot(treatments_to_plot, aes_string(x = xv , y = yv, color = colorBy, size = dotSize, shape = "genotype"))
-        } else {
-          gg <- ggplot(treatments_to_plot, aes_string(x = xv , y = yv, color = colorBy, size = dotSize))
-        }
-        
-        # Set palette
-        numericDf <- treatments_to_plot[sapply(treatments_to_plot,is.numeric)]
-        if (colorBy %in% colnames(numericDf)) {
-          gg <- gg + scale_fill_gradient(low = brewer.pal(8, input$cbPaletteSelector)[1],
-                                         high = brewer.pal(8, input$cbPaletteSelector)[length(brewer.pal(8, input$cbPaletteSelector))],
-                                         space = "Lab",
-                                         na.value = "grey50",
-                                         guide = "colourbar")
-        } else {
-          treatmentsVector <- as.vector(treatments_to_plot[colorBy])
-          gg <- gg + scale_colour_manual(values = colorRampPalette(brewer.pal(8, input$cbPaletteSelector))(n_distinct(treatmentsVector)))
-        }
-        
-        # Select display mode
-        gg <- gg + geom_point(alpha = 0.7)
-        
-        if (input$cbShowLabels != "None") {
-          gg <- gg + geom_text_repel(aes_string(color = colorBy, label = input$cbShowLabels), vjust = -1)
-        }
-        
-        # Scatter the scatter
-        if (input$cbSplitScatter != "None"){
-          gg <- gg +  facet_wrap(input$cbSplitScatter)
-        }
+      # Select display mode
+      gg <- gg + geom_point(alpha = 0.7)
+      
+      if (input$cbShowLabels != "none") {
+        gg <- gg + geom_text_repel(aes_string(color = dt$colorBy, label = input$cbShowLabels), vjust = -1)
+      }
+      
+      # Scatter the scatter
+      if (input$cbSplitScatter != "none"){
+        gg <- gg +  facet_wrap(input$cbSplitScatter)
+      }
 
-        # Smoothy
-        if (!input$chkUseTimePointSelector & (input$smoothingModel != "none")) {
-          gg <- gg + geom_smooth(method = input$smoothingModel)
-        }
-        
-        gg
+      # Smoothy
+      if (!input$chkUseTimePointSelector & (input$smoothingModel != "none")) {
+        gg <- gg + geom_smooth(method = input$smoothingModel)
       }
-    }  
+      
+      gg
+    }
   })
   
 }
