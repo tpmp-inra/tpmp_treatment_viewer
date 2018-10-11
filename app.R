@@ -25,8 +25,8 @@ library(data.table)
 library(RColorBrewer)
 library(shinyWidgets)
 library(ggrepel)
-
-source("./shiny_common.R")
+library(gtools)
+library(shinyCommon)
 
 ui <- pageWithSidebar(
   
@@ -96,6 +96,9 @@ server <- function(input, output, session) {
     if (is.null(yv)) return(NULL)
     dotSize <- input$dotSize
     if (is.null(dotSize)) return(NULL)
+    if (dotSize == 'none') {
+      dotSize <- 2
+    }
     colorBy <- input$colorBy
     if (is.null(colorBy)) return(NULL)
     selPlant <- input$cbPlantSelection
@@ -267,7 +270,7 @@ server <- function(input, output, session) {
     dsnames <- names(new_df)
     cb_options <- list()
     cb_options[ dsnames] <- dsnames
-    selectInput("dotSize", "Dot Size:", choices = cb_options, selected = "shape_solidity")
+    selectInput("dotSize", "Dot Size:", choices = c('none', cb_options), selected = "shape_solidity")
   })
   
   output$smoothingModel <- renderUI({
