@@ -26,7 +26,8 @@ library(RColorBrewer)
 library(shinyWidgets)
 library(ggrepel)
 library(gtools)
-library(shinyCommon)
+
+source('./shiny_common_all.R')
 
 ui <- pageWithSidebar(
   
@@ -97,10 +98,13 @@ server <- function(input, output, session) {
     dotSize <- input$dotSize
     if (is.null(dotSize)) return(NULL)
     if (dotSize == 'none') {
-      dotSize <- 2
+      dotSize <- NULL
     }
     colorBy <- input$colorBy
     if (is.null(colorBy)) return(NULL)
+    if (colorBy == 'none') {
+      colorBy <- NULL
+    }
     selPlant <- input$cbPlantSelection
     if (is.null(selPlant)) return(NULL)
     
@@ -259,18 +263,20 @@ server <- function(input, output, session) {
     dsnames <- names(df)
     cb_options <- list()
     cb_options[ dsnames] <- dsnames
-    selectInput("colorBy", "Color dots using:", choices = cb_options, selected = "treatment")
+    cb_options <- cb_options[mixedorder(unlist(cb_options),decreasing=F)]
+    if ('treatment' %in% cb_options) {
+      selected_choice <- 'treatment'
+    } else {
+      selected_choice <- 'none'
+    }
+    selectInput("colorBy", "Color dots using:", choices = c('none', cb_options), selected = selected_choice)
   })
   
   #The following set of functions populate the dot size selectors
   output$dotSize <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
-    new_df <- df[sapply(df,is.numeric)]
-    dsnames <- names(new_df)
-    cb_options <- list()
-    cb_options[ dsnames] <- dsnames
-    selectInput("dotSize", "Dot Size:", choices = c('none', cb_options), selected = "shape_solidity")
+    build_numeric_selectImput(df, "dotSize", "Dot Size:", "none")
   })
   
   output$smoothingModel <- renderUI({
@@ -367,16 +373,18 @@ server <- function(input, output, session) {
       }
       
       # Set palette
-      numericDf <- dt$df[sapply(dt$df,is.numeric)]
-      if (dt$colorBy %in% colnames(numericDf)) {
-        gg <- gg + scale_fill_gradient(low = brewer.pal(8, input$cbPaletteSelector)[1],
-                                       high = brewer.pal(8, input$cbPaletteSelector)[length(brewer.pal(8, input$cbPaletteSelector))],
-                                       space = "Lab",
-                                       na.value = "grey50",
-                                       guide = "colourbar")
-      } else {
-        treatmentsVector <- as.vector(dt$df[dt$colorBy])
-        gg <- gg + scale_colour_manual(values = colorRampPalette(brewer.pal(8, input$cbPaletteSelector))(n_distinct(treatmentsVector)))
+      if (!is.null(dt$colorBy)) {
+        numericDf <- dt$df[sapply(dt$df,is.numeric)]
+        if (dt$colorBy %in% colnames(numericDf)) {
+          gg <- gg + scale_fill_gradient(low = brewer.pal(8, input$cbPaletteSelector)[1],
+                                         high = brewer.pal(8, input$cbPaletteSelector)[length(brewer.pal(8, input$cbPaletteSelector))],
+                                         space = "Lab",
+                                         na.value = "grey50",
+                                         guide = "colourbar")
+        } else {
+          treatmentsVector <- as.vector(dt$df[dt$colorBy])
+          gg <- gg + scale_colour_manual(values = colorRampPalette(brewer.pal(8, input$cbPaletteSelector))(n_distinct(treatmentsVector)))
+        }
       }
       
       # Select display mode
@@ -395,6 +403,12 @@ server <- function(input, output, session) {
       if (!input$chkUseTimePointSelector & (input$smoothingModel != "none")) {
         gg <- gg + geom_smooth(method = input$smoothingModel)
       }
+      
+      gg <- gg + theme(legend.title = element_text(size=32, face = "bold"),
+                       legend.text=element_text(size=30),
+                       axis.text=element_text(size=20),
+                       axis.title=element_text(size=22,face="bold"),
+                       title = element_text(size=20))
       
       gg
     }
