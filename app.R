@@ -49,6 +49,7 @@ ui <- pageWithSidebar(
              uiOutput("cbNormalizationMethod"),
              uiOutput("cbShowLabels")),
       column(6,
+             uiOutput("chkShowOutliers"),
              uiOutput("cbPaletteSelector"),
              uiOutput("cbSplitScatter"),
              uiOutput("colorBy"),
@@ -114,6 +115,10 @@ server <- function(input, output, session) {
         df %>%
         filter(treatment %in% input$cbTreatmentSelection) %>%
         filter(plant %in% selPlant)
+      
+      if (!input$chkShowOutliers & ("outlier" %in% colnames(df))) {
+        treatments_to_plot <- treatments_to_plot %>% filter(outlier == 0)
+      }
       
       # Normalize
       if (input$cbNormalizationMethod == "normalization") {
@@ -311,6 +316,16 @@ server <- function(input, output, session) {
                              "none")
   })
   
+  output$chkShowOutliers <- renderUI({
+    df <-filedata()
+    if (is.null(df)) return(NULL)
+    if ("outlier" %in% colnames(df)) {
+      checkboxInput("chkShowOutliers", paste('Show outliers (', length(which(df$outlier==1)), ')', sep=''), TRUE)
+    } else {
+      checkboxInput("chkShowOutliers", 'No outliers detected, option ignored', FALSE)
+    }
+  })
+  
   output$timeSliceSelector <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
@@ -404,11 +419,11 @@ server <- function(input, output, session) {
         gg <- gg + geom_smooth(method = input$smoothingModel)
       }
       
-      gg <- gg + theme(legend.title = element_text(size=32, face = "bold"),
-                       legend.text=element_text(size=30),
-                       axis.text=element_text(size=20),
-                       axis.title=element_text(size=22,face="bold"),
-                       title = element_text(size=20))
+      # gg <- gg + theme(legend.title = element_text(size=32, face = "bold"),
+      #                  legend.text=element_text(size=30),
+      #                  axis.text=element_text(size=20),
+      #                  axis.title=element_text(size=22,face="bold"),
+      #                  title = element_text(size=20))
       
       gg
     }
