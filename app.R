@@ -46,7 +46,6 @@ ui <- pageWithSidebar(
              uiOutput("xAxisCombo"),
              uiOutput("yAxisCombo"),
              uiOutput("smoothingModel"),
-             uiOutput("cbNormalizationMethod"),
              uiOutput("cbShowLabels")),
       column(6,
              uiOutput("chkShowOutliers"),
@@ -99,13 +98,10 @@ server <- function(input, output, session) {
     dotSize <- input$dotSize
     if (is.null(dotSize)) return(NULL)
     if (dotSize == 'none') {
-      dotSize <- NULL
+      dotSize <- 4
     }
-    colorBy <- input$colorBy
-    if (is.null(colorBy)) return(NULL)
-    if (colorBy == 'none') {
-      colorBy <- NULL
-    }
+    dotColor <- input$colorBy
+    if (is.null(dotColor)) return(NULL)
     selPlant <- input$cbPlantSelection
     if (is.null(selPlant)) return(NULL)
     
@@ -120,16 +116,20 @@ server <- function(input, output, session) {
         treatments_to_plot <- treatments_to_plot %>% filter(outlier == 0)
       }
       
-      # Normalize
-      if (input$cbNormalizationMethod == "normalization") {
-        normalize <- function(x) {
-          return((x-min(x)) / (max(x)-min(x)))
+      # Create color column
+      ccn = color_column_name()
+      if (dotColor != 'none') {
+        ccn.vector <- as.factor(treatments_to_plot[,dotColor][[1]])
+        if (length(unique(ccn.vector)) > 20) {
+          ccn.vector <- treatments_to_plot[,dotColor][[1]]
         }
-        treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(normalize(.) %>% as.vector))
+        treatments_to_plot <- 
+          treatments_to_plot %>%
+          mutate(!!ccn := ccn.vector)
       } else {
-        if (input$cbNormalizationMethod == "scale") {
-          treatments_to_plot <- treatments_to_plot %>% mutate_at(vars(yv), funs(scale(.) %>% as.vector))
-        }
+        treatments_to_plot <- 
+          treatments_to_plot %>%
+          mutate(!!ccn := as.factor(1))
       }
       
       if (input$chkUseTimePointSelector) {
@@ -144,10 +144,18 @@ server <- function(input, output, session) {
         }
       }
       return(list(df = treatments_to_plot,
-                  dotSize = dotSize,
-                  colorBy = colorBy, 
+                  dotSize = dotSize, 
                   xv = xv,
                   yv = yv))
+    }
+  })
+  
+  color_column_name <- reactive({
+    dotColor <- input$colorBy
+    if (dotColor == 'none') {
+      'no_color'
+    } else {
+      paste('color', dotColor, 'xyz', sep = '_')
     }
   })
   
@@ -301,12 +309,6 @@ server <- function(input, output, session) {
     
   })
   
-  output$cbNormalizationMethod <- renderUI({
-    df <-filedata()
-    if (is.null(df)) return(NULL)
-    fill_normalization_cb()
-  })
-  
   output$cbShowLabels <- renderUI({
     df <-filedata()
     if (is.null(df)) return(NULL)
@@ -382,31 +384,28 @@ server <- function(input, output, session) {
     } else {
       # Plot the dots
       if(input$chkDrawGenotype & "genotype" %in% colnames(dt$df)) {
-        gg <- ggplot(dt$df, aes_string(x = dt$xv , y = dt$yv, color = dt$colorBy, size = dt$dotSize, shape = "genotype"))
+        gg <- ggplot(dt$df, aes_string(x = dt$xv , y = dt$yv, color = color_column_name(), size = dt$dotSize, shape = "genotype"))
       } else {
-        gg <- ggplot(dt$df, aes_string(x = dt$xv , y = dt$yv, color = dt$colorBy, size = dt$dotSize))
+        gg <- ggplot(dt$df, aes_string(x = dt$xv , y = dt$yv, color = color_column_name(), size = dt$dotSize))
       }
       
       # Set palette
-      if (!is.null(dt$colorBy)) {
-        numericDf <- dt$df[sapply(dt$df,is.numeric)]
-        if (dt$colorBy %in% colnames(numericDf)) {
-          gg <- gg + scale_fill_gradient(low = brewer.pal(8, input$cbPaletteSelector)[1],
-                                         high = brewer.pal(8, input$cbPaletteSelector)[length(brewer.pal(8, input$cbPaletteSelector))],
-                                         space = "Lab",
-                                         na.value = "grey50",
-                                         guide = "colourbar")
-        } else {
-          treatmentsVector <- as.vector(dt$df[dt$colorBy])
-          gg <- gg + scale_colour_manual(values = colorRampPalette(brewer.pal(8, input$cbPaletteSelector))(n_distinct(treatmentsVector)))
-        }
+      cl.vector <- dt$df[,color_column_name()][[1]]
+      if (length(cl.vector) > 20) {
+        gg <- gg + scale_fill_gradient(low = brewer.pal(8, input$cbPaletteSelector)[1],
+                                       high = brewer.pal(8, input$cbPaletteSelector)[length(brewer.pal(8, input$cbPaletteSelector))],
+                                       space = "Lab",
+                                       na.value = "grey50",
+                                       guide = "colourbar")
+      } else {
+        gg <- gg + scale_colour_manual(values = colorRampPalette(brewer.pal(8, input$cbPaletteSelector))(n_distinct(cl.vector)))
       }
       
       # Select display mode
       gg <- gg + geom_point(alpha = 0.7)
       
       if (input$cbShowLabels != "none") {
-        gg <- gg + geom_text_repel(aes_string(color = dt$colorBy, label = input$cbShowLabels), vjust = -1)
+        gg <- gg + geom_text_repel(aes_string(color = color_column_name(), label = input$cbShowLabels), vjust = -1)
       }
       
       # Scatter the scatter
