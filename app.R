@@ -415,7 +415,7 @@ server <- function(input, output, session) {
 
       # Smoothy
       if (!input$chkUseTimePointSelector & (input$smoothingModel != "none")) {
-        gg <- gg + geom_smooth(method = input$smoothingModel)
+        gg <- gg + geom_smooth(method = input$smoothingModel, size = 1)
       }
       
       # gg <- gg + theme(legend.title = element_text(size=32, face = "bold"),
