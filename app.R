@@ -27,7 +27,7 @@ library(shinyWidgets)
 library(ggrepel)
 library(gtools)
 
-source('./shiny_common_all.R')
+source('../shinyCommon/R/shiny_common_all.R')
 
 ui <- pageWithSidebar(
   
