@@ -26,6 +26,8 @@ library(RColorBrewer)
 library(shinyWidgets)
 library(ggrepel)
 library(gtools)
+library(plotly)
+library(grid)
 
 source('../shinyCommon/R/shiny_common_all.R')
 
@@ -418,13 +420,20 @@ server <- function(input, output, session) {
         gg <- gg + geom_smooth(method = input$smoothingModel, size = 1)
       }
       
+      # Remove legend
+      if (nrow(unique(dt$df[,color_column_name()])) > 40) {
+        gg <- gg + theme(legend.position = "none")
+      }
+      
       # gg <- gg + theme(legend.title = element_text(size=32, face = "bold"),
       #                  legend.text=element_text(size=30),
       #                  axis.text=element_text(size=20),
       #                  axis.title=element_text(size=22,face="bold"),
       #                  title = element_text(size=20))
       
+      # gg <- ggplotly(gg)
       gg
+      # plot_ly(gg)
     }
   })
   
